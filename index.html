@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>服务器到期监控面板 (数据库版)</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f4f7f9; color: #333; margin: 0; padding: 20px; line-height: 1.6; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; background-color: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); }
+        h1, h2 { color: #1a2b4d; border-bottom: 2px solid #eef2f5; padding-bottom: 10px; margin-top: 0; }
+        h1 { text-align: center; }
+        #add-service-form { background-color: #fdfdff; border: 1px solid #eef2f5; padding: 20px; border-radius: 8px; margin-bottom: 30px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; align-items: end; }
+        #add-service-form div { display: flex; flex-direction: column; }
+        label { margin-bottom: 5px; font-weight: bold; font-size: 0.9em; }
+        input[type="text"], input[type="date"], select { padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 1em; }
+        button { cursor: pointer; padding: 10px 20px; border: none; border-radius: 4px; color: #fff; font-weight: bold; font-size: 1em; transition: background-color 0.3s ease; }
+        .submit-btn { background-color: #007bff; grid-column: -1; }
+        .submit-btn:hover { background-color: #0056b3; }
+        .renew-btn { background-color: #28a745; margin-left: 10px; font-size: 0.85em; padding: 5px 10px; }
+        .renew-btn:hover { background-color: #218838; }
+        .delete-btn { background-color: #dc3545; font-size: 0.85em; padding: 5px 10px; }
+        .delete-btn:hover { background-color: #c82333; }
+        .service-category { margin-bottom: 25px; }
+        .service-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; }
+        .service-card { background-color: #fff; border: 1px solid #eef2f5; border-radius: 6px; padding: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); transition: transform 0.2s ease, box-shadow 0.2s ease; display: flex; flex-direction: column; justify-content: space-between; }
+        .service-card:hover { transform: translateY(-3px); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .service-card p { margin: 5px 0; }
+        .service-card .name { font-size: 1.2em; font-weight: bold; color: #1a2b4d; }
+        .service-card .vendor { color: #555; font-style: italic; }
+        .service-card .days-remaining { font-size: 1.5em; font-weight: bold; color: #28a745; align-self: flex-end; }
+        .service-card.expiring-soon .days-remaining { color: #dc3545; }
+        .card-footer { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; align-items: center; }
+        .card-footer .dates { font-size: 0.85em; color: #666; margin-right: auto; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>服务器到期监控面板 🗓️ (数据库版)</h1>
+        <form id="add-service-form">
+            <div><label for="vendor">服务厂商</label><input type="text" id="vendor" placeholder="例如：阿里云, 腾讯云" required></div>
+            <div><label for="name">服务名称/ID</label><input type="text" id="name" placeholder="例如：主站Web服务器" required></div>
+            <div><label for="category">分类</label><select id="category" required><option value="CDN">CDN</option><option value="ECS">ECS实例</option><option value="SSL">SSL证书</option><option value="LXC">LXC容器</option><option value="VHOST">虚拟主机</option></select></div>
+            <div><label for="start-date">开始日期</label><input type="date" id="start-date" required></div>
+            <div><label for="expiry-date">到期日期</label><input type="date" id="expiry-date" required></div>
+            <button type="submit" class="submit-btn">添加服务</button>
+        </form>
+        <div id="service-container">
+            <div class="service-category"><h2>🌐 CDN</h2><div class="service-list" id="CDN-list"></div></div>
+            <div class="service-category"><h2>☁️ ECS实例</h2><div class="service-list" id="ECS-list"></div></div>
+            <div class="service-category"><h2>🔒 SSL证书</h2><div class="service-list" id="SSL-list"></div></div>
+            <div class="service-category"><h2>📦 LXC容器</h2><div class="service-list" id="LXC-list"></div></div>
+            <div class="service-category"><h2>🖥️ 虚拟主机</h2><div class="service-list" id="VHOST-list"></div></div>
+        </div>
+    </div>
+
+    <script>
+        'use strict';
+        document.addEventListener('DOMContentLoaded', () => {
+            const addServiceForm = document.getElementById('add-service-form');
+            const serviceContainer = document.getElementById('service-container');
+            const API_BASE_URL = 'http://localhost:3000/api'; // 后端服务器地址
+
+            const calculateDaysRemaining = (expiryDate) => {
+                const today = new Date();
+                const expiry = new Date(expiryDate);
+                today.setHours(0, 0, 0, 0);
+                expiry.setHours(0, 0, 0, 0);
+                const diffTime = expiry.getTime() - today.getTime();
+                return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            };
+
+            const renderServices = async () => {
+                document.querySelectorAll('.service-list').forEach(list => list.innerHTML = '');
+                
+                try {
+                    const response = await fetch(`${API_BASE_URL}/services`);
+                    if (!response.ok) throw new Error('无法从服务器获取数据');
+                    const services = await response.json();
+
+                    services.forEach(service => {
+                        const listContainer = document.getElementById(`${service.category}-list`);
+                        if (!listContainer) return;
+
+                        const daysRemaining = calculateDaysRemaining(service.expiryDate);
+                        const card = document.createElement('div');
+                        card.className = 'service-card';
+                        card.dataset.id = service.id; // 使用数据库的ID
+                        card.dataset.expiryDate = service.expiryDate; // 存储原始到期日
+
+                        if (daysRemaining < 30) card.classList.add('expiring-soon');
+                        
+                        let daysText = daysRemaining < 0 ? `已到期 ${Math.abs(daysRemaining)} 天` : (daysRemaining === 0 ? `今天到期` : `剩 ${daysRemaining} 天`);
+
+                        card.innerHTML = `
+                            <div>
+                                <p class="name">${service.name}</p><p class="vendor">${service.vendor}</p>
+                                <span class="days-remaining">${daysText}</span>
+                            </div>
+                            <div class="card-footer">
+                               <div class="dates">到期: ${service.expiryDate}<br>开始: ${service.startDate}</div>
+                               <button class="delete-btn">删除</button><button class="renew-btn">续费</button>
+                            </div>
+                        `;
+                        listContainer.appendChild(card);
+                    });
+                } catch (error) {
+                    console.error('渲染服务列表失败:', error);
+                    alert('错误: ' + error.message);
+                }
+            };
+
+            addServiceForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const newService = {
+                    vendor: document.getElementById('vendor').value,
+                    name: document.getElementById('name').value,
+                    category: document.getElementById('category').value,
+                    startDate: document.getElementById('start-date').value,
+                    expiryDate: document.getElementById('expiry-date').value,
+                };
+                
+                try {
+                    const response = await fetch(`${API_BASE_URL}/services`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(newService)
+                    });
+                    if (!response.ok) throw new Error('添加失败');
+                    await response.json();
+                    renderServices();
+                    addServiceForm.reset();
+                } catch (error) {
+                    console.error('添加服务失败:', error);
+                    alert('添加服务时出错，请检查服务器连接。');
+                }
+            });
+
+            serviceContainer.addEventListener('click', async (e) => {
+                const card = e.target.closest('.service-card');
+                if (!card) return;
+                const serviceId = card.dataset.id;
+
+                if (e.target.classList.contains('renew-btn')) {
+                    const daysToAdd = prompt("请输入续费天数:", "365");
+                    if (!daysToAdd || isNaN(parseInt(daysToAdd)) || parseInt(daysToAdd) <= 0) return;
+
+                    const currentExpiry = new Date(card.dataset.expiryDate);
+                    currentExpiry.setDate(currentExpiry.getDate() + parseInt(daysToAdd));
+                    const newExpiryDate = currentExpiry.toISOString().split('T')[0];
+                    
+                    try {
+                        const response = await fetch(`${API_BASE_URL}/services/${serviceId}/renew`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ newExpiryDate })
+                        });
+                        if (!response.ok) throw new Error('续费失败');
+                        renderServices();
+                    } catch (error) {
+                        console.error('续费失败:', error);
+                        alert('续费时出错，请检查服务器连接。');
+                    }
+                }
+                
+                if (e.target.classList.contains('delete-btn')) {
+                    if (confirm('确定要删除这个服务记录吗？')) {
+                        try {
+                            const response = await fetch(`${API_BASE_URL}/services/${serviceId}`, {
+                                method: 'DELETE'
+                            });
+                            if (!response.ok) throw new Error('删除失败');
+                            renderServices();
+                        } catch (error) {
+                            console.error('删除失败:', error);
+                            alert('删除时出错，请检查服务器连接。');
+                        }
+                    }
+                }
+            });
+
+            renderServices(); // 初始加载
+        });
+    </script>
+</body>
+</html>
