@@ -1,12 +1,12 @@
-# SubSentry - 服务监控后端
+# SubSentry - 服务监控与到期时间
 
-这是一个使用 Node.js 和 Express 构建的简单后端服务，用于监控和管理各项服务的订阅情况。它提供了一套 RESTful API，用于追踪服务的供应商、名称、起始日期和到期日期等详细信息。
+这是一个使用 Node.js 和 Express 构建的简单后端服务，用于监控和管理各项服务的订阅情况。它提供了一套 RESTful API，用于追踪服务的供应商、名称、起始日期和到期日期等详细信息。以及手动续期以防止云资源过多导致忘记续费而丢失数据
 
 ## 环境要求
 
 在开始之前，请确保您已安装以下软件：
-- [Node.js](https://nodejs.org/) (已包含 npm)
-- [MySQL](https://www.mysql.com/) 服务器
+- [Node.js](https://nodejs.org/) 
+- [MySQL](https://www.mysql.com/) 
 
 ## 快速开始
 
@@ -42,7 +42,7 @@ npm install
 
 ### 4. 配置环境变量
 
-本应用使用 `.env` 文件来管理敏感配置，如数据库凭据。
+使用 `.env` 文件来管理配置数据库凭据。
 
 1.  创建示例环境文件的副本，并将其命名为 `.env`：
     ```bash
@@ -52,7 +52,7 @@ npm install
     # 在 macOS/Linux 上，您可以使用：
     # cp .env.example .env
     ```
-2.  打开新创建的 `.env` 文件，并更新数据库凭据（`DB_USER`、`DB_PASSWORD` 等）以匹配您的本地 MySQL 设置。
+2.  打开新创建的 `.env` 文件，并更新数据库凭据（`DB_USER`、`DB_PASSWORD` 等）以匹配您的 MySQL 账号密码。
 
 ## 运行应用
 
@@ -60,11 +60,12 @@ npm install
 ```bash
 npm start
 ```
-服务器将会启动，您应该会在控制台中看到一条确认消息：
+后端服务器将会启动，您应该会在控制台中看到一条确认消息：
 ```
 ✅ 服务器已启动，正在监听 http://localhost:3000
 ```
-
+这时，您就可以直接打开Index查看效果并配置了。
+强烈建议将MySql数据库部署到靠谱的云服务上，以防止数据库丢失导致的数据丢失。
 ## API 接口
 
 应用提供了以下 API 接口：
